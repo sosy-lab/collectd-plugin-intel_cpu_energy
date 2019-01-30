@@ -3,12 +3,12 @@ CFLAGS := -Wall -DHAVE_CONFIG_H -shared -fPIC -g $(CFLAGS)
 INCLUDES = -I. -I/usr/include/collectd/
 LFLAGS = -L.
 LIBS = -lm
-SRCS = cpuid.c intel_cpu_energy.c msr.c rapl.c
+SRCS = cpuid.c intel_cpu_energy.c msr.c rapl.c util.c
 OBJS = $(SRCS:.c=.o)
 PLUGIN_NAME = intel_cpu_energy
 MAIN = $(PLUGIN_NAME).so
 TYPE_DB = energy-type.db
-DEPS = cpuid.h msr.h rapl.h
+DEPS = cpuid.h msr.h rapl.h intel-family.h util.h
 
 all:    $(MAIN)
 
