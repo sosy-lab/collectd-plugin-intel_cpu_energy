@@ -25,8 +25,8 @@ privileges anyway, those permissions should be available by default.
 To build the module, you will need to have the `collectd-dev` package installed
 (the package name might differ on non-Debian-based distributions).
 
-The module has been successfully tested with version 5.4.0-3ubuntu2 of
-`collectd-dev` (on Ubuntu 14.04), but collectd's plugin API can be highly
+The module has been successfully tested with version 5.8-3ubuntu2 of
+`collectd-dev` (on Ubuntu 18.04), but collectd's plugin API can be highly
 unstable, even between minor versions, so it might not work out of the box with
 other versions.
 
@@ -45,20 +45,6 @@ For those new version, simply run the following:
     sudo make install
     service collectd restart
 
-### Collectd version < 5.5.0
-
-For all older Collectd versions (within reason), pass a preprocessor definition
-to the C compiler to substitute the relevant portions of the code:
-
-    CFLAGS="-DCOLLECTD_VERSION_LT_5_5" make clean all
-    sudo make install
-    service collectd restart
-
-Beware that this will override collectd's `TypesDB` option (in a separate file,
-so it's easily reversible), so you might want to install the plugin manually if
-you are already using a custom data-set definition file (e.g. `my_types.db`).
-Take a look at the `install` target in the `Makefile` for hints on how to do
-that.
 
 Usage
 -----
@@ -72,13 +58,7 @@ Watt seconds) since the last (re-)start of `collectd`.
 
 The value is internally processed as a double-precision floating point number,
 so you shouldn't encounter any problems with overflows.
-However, the measurement value reported by the CPU can (and will) overflow
-eventually. The plugin will detect and compensate for this, but it has to make
-sure it won't "miss" an overflow (= more than one overflow occurring between
-successive readouts of the CPU registers. To ensure this, the plugin will
-enforce a 60 second polling interval if the global interval is greater than
-that. Shorter polling intervals than 60 seconds will be accepted and used
-unchanged.
+Because of potential overflow issues the update interval should not be longer than 60 seconds.
 
 
 [collectd]: https://github.com/collectd/collectd/
