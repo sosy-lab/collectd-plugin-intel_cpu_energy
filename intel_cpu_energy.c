@@ -39,9 +39,10 @@
 #include <time.h>
 #endif /* ! HAVE_CONFIG */
 
-# include <core/daemon/collectd.h>
-# include <core/daemon/common.h>
-# include <core/daemon/plugin.h>
+#include <collectd/liboconfig/oconfig.h>
+#include <collectd/core/daemon/collectd.h>
+#include <collectd/core/daemon/common.h>
+#include <collectd/core/daemon/plugin.h>
 
 #include "rapl.h"
 

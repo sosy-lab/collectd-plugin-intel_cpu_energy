@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS := -Wall -DHAVE_CONFIG_H -shared -fPIC -g $(CFLAGS)
-INCLUDES = -I. -I/usr/include/collectd/
+INCLUDES =
 LFLAGS = -L.
 LIBS = -lm
 SRCS = cpuid.c intel_cpu_energy.c msr.c rapl.c util.c
@@ -14,6 +14,7 @@ all:    $(MAIN)
 
 $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
+	strip $(MAIN)
 
 # this is a suffix replacement rule for building .o's from .c's
 # it uses automatic variables $<: the name of the prerequisite of
