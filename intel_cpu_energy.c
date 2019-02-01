@@ -99,7 +99,7 @@ static int energy_submit (unsigned int cpu_id, unsigned int domain, double measu
     
     sstrncpy (vl.host, hostname_g, sizeof (vl.host));
     sstrncpy (vl.plugin, "intel_cpu_energy", sizeof (vl.plugin));
-    ssnprintf (vl.plugin_instance, sizeof (vl.plugin_instance), "cpu%u", cpu_id);
+    snprintf (vl.plugin_instance, sizeof (vl.plugin_instance), "cpu%u", cpu_id);
     sstrncpy (vl.type, "energy", sizeof (vl.type));
     sstrncpy (vl.type_instance, RAPL_DOMAIN_STRINGS[domain], sizeof (vl.type_instance));
     
