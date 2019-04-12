@@ -51,15 +51,11 @@
 #include <inttypes.h>
 #include <unistd.h>
 
-uint64_t rapl_node_count = 0;
-double **prev_sample = NULL;
-double **cum_energy_J = NULL;
+static int rapl_node_count = 0;
+static double (*prev_sample)[][RAPL_NR_DOMAIN] = NULL;
+static double (*cum_energy_J)[][RAPL_NR_DOMAIN] = NULL;
 
-int get_rapl_energy_info(uint64_t power_domain, uint64_t node, double *total_energy_consumed) {
-  return get_total_energy_consumed(node, power_domain, total_energy_consumed);
-}
-
-static int energy_submit(unsigned int cpu_id, unsigned int domain, double measurement) {
+static int energy_submit(int cpu_id, int domain, double measurement) {
   /*
    * an id is of the form host/plugin-instance/type-instance with
    * both instance-parts being optional.
@@ -75,7 +71,7 @@ static int energy_submit(unsigned int cpu_id, unsigned int domain, double measur
 
   sstrncpy(vl.host, hostname_g, sizeof(vl.host));
   sstrncpy(vl.plugin, "intel_cpu_energy", sizeof(vl.plugin));
-  snprintf(vl.plugin_instance, sizeof(vl.plugin_instance), "cpu%u", cpu_id);
+  snprintf(vl.plugin_instance, sizeof(vl.plugin_instance), "cpu%d", cpu_id);
   sstrncpy(vl.type, "energy", sizeof(vl.type));
   sstrncpy(vl.type_instance, RAPL_DOMAIN_STRINGS[domain], sizeof(vl.type_instance));
 
@@ -83,80 +79,50 @@ static int energy_submit(unsigned int cpu_id, unsigned int domain, double measur
 }
 
 static int energy_read(void) {
-  int err;
-  int domain = 0;
-  uint64_t node = 0;
-  double new_sample, delta;
+  if (get_total_energy_consumed_for_nodes(rapl_node_count, *prev_sample, *cum_energy_J) != 0) {
+    ERROR("intel_cpu_energy plugin: Failed to read energy information");
+    return -1;
+  }
 
-  /* add new measured energy consumption to cum_energy */
-  for (uint64_t i = node; i < rapl_node_count; i++) {
-    for (domain = 0; domain < RAPL_NR_DOMAIN; ++domain) {
+  for (int i = 0; i < rapl_node_count; i++) {
+    for (int domain = 0; domain < RAPL_NR_DOMAIN; domain++) {
       if (is_supported_domain(domain)) {
-        get_rapl_energy_info(domain, i, &new_sample);
-        delta = new_sample - prev_sample[i][domain];
-
-        /* handle wraparound */
-        if (delta < 0) {
-          delta += MAX_ENERGY_STATUS_JOULES;
-        }
-
-        prev_sample[i][domain] = new_sample;
-        cum_energy_J[i][domain] += delta;
-
-        err = energy_submit(i, domain, cum_energy_J[i][domain]);
-        if (err) {
+        int err = energy_submit(i, domain, (*cum_energy_J)[i][domain]);
+        if (err != 0) {
           ERROR(
               "intel_cpu_energy plugin: Failed to submit energy information "
-              "for node %" PRIu64 ", domain %d (%s): Return value %d",
+              "for node %d, domain %d (%s): Return value %d",
               i,
               domain,
               RAPL_DOMAIN_STRINGS[domain],
               err);
-          return err;
+          return -1;
         }
       }
     }
   }
 
-  return (0);
+  return 0;
 }
 
 static int energy_init(void) {
-  int domain = 0;
-  uint64_t node = 0;
-
   /* initialize rapl */
-  int err = init_rapl();
-  if (0 != err) {
-    ERROR(
-        "intel_cpu_energy plugin: RAPL initialisation failed with return "
-        "value %d",
-        err);
+  if (init_rapl() != 0) {
+    ERROR("intel_cpu_energy plugin: RAPL initialisation failed");
     terminate_rapl();
     return -1;
   }
   rapl_node_count = get_num_rapl_nodes();
-  INFO("intel_cpu_energy plugin: found %lu nodes (physical CPUs)", rapl_node_count);
+  INFO("intel_cpu_energy plugin: found %d nodes (physical CPUs)", rapl_node_count);
 
   /* allocate pointers */
-  cum_energy_J = calloc(rapl_node_count, sizeof(double *));
-  prev_sample = calloc(rapl_node_count, sizeof(double *));
-  for (uint64_t i = 0; i < rapl_node_count; i++) {
-    cum_energy_J[i] = calloc(RAPL_NR_DOMAIN, sizeof(double));
-    prev_sample[i] = calloc(RAPL_NR_DOMAIN, sizeof(double));
-  }
-
-  /* don't buffer if piped */
-  setbuf(stdout, NULL);
+  cum_energy_J = calloc(rapl_node_count, sizeof(double[RAPL_NR_DOMAIN]));
+  prev_sample = calloc(rapl_node_count, sizeof(double[RAPL_NR_DOMAIN]));
 
   /* read initial values */
-  for (uint64_t i = node; i < rapl_node_count; i++) {
-    for (domain = 0; domain < RAPL_NR_DOMAIN; ++domain) {
-      if (is_supported_domain(domain)) {
-        get_rapl_energy_info(domain, i, &prev_sample[i][domain]);
-        get_rapl_energy_info(domain, i, &cum_energy_J[i][domain]);
-      }
-    }
+  if (get_total_energy_consumed_for_nodes(rapl_node_count, *prev_sample, NULL) != 0) {
+    ERROR("intel_cpu_energy plugin: Failed to read energy information");
+    return -1;
   }
 
   return 0;
