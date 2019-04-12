@@ -1,14 +1,13 @@
 CC = gcc
 CFLAGS := -Wall -DHAVE_CONFIG_H -shared -fPIC -g $(CFLAGS)
-INCLUDES =
+INCLUDES = -I vendor/cpu-energy-meter
 LFLAGS = -L.
 LIBS = -lm
-SRCS = cpuid.c intel_cpu_energy.c msr.c rapl.c util.c
+SRCS = intel_cpu_energy.c $(wildcard vendor/cpu-energy-meter/*.c)
 OBJS = $(SRCS:.c=.o)
 PLUGIN_NAME = intel_cpu_energy
 MAIN = $(PLUGIN_NAME).so
 TYPE_DB = energy-type.db
-DEPS = cpuid.h msr.h rapl.h intel-family.h util.h
 
 all:    $(MAIN)
 
