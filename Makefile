@@ -39,4 +39,7 @@ uninstall:
 depend: $(SRCS)
 	makedepend $(INCLUDES) $^
 
+.PHONY: format-source
+format-source:
+	clang-format -i *.c
 # DO NOT DELETE THIS LINE -- make depend needs it
