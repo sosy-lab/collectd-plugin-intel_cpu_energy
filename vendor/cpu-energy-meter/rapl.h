@@ -30,79 +30,72 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef _h_rapl
 #define _h_rapl
 
-#include <sched.h>
 #include <stdint.h>
 
-#define MY_ERROR -1
-
 /* Power Domains */
-#define RAPL_PKG 0       /*!< \brief Package power domain */
-#define RAPL_PP0 1       /*!< \brief Core power domain */
-#define RAPL_PP1 2       /*!< \brief Uncore power domain */
-#define RAPL_DRAM 3      /*!< \brief DRAM power domain */
-#define RAPL_PSYS 4      /*!< \brief PLATFORM power domain */
-#define RAPL_NR_DOMAIN 5 /*!< \brief Number of power domains */
+enum RAPL_DOMAIN {
+  RAPL_PKG,
+  RAPL_PP0,
+  RAPL_PP1,
+  RAPL_DRAM,
+  /**
+   * According to Intel Software Devlopers Manual Volume 4, Table 2-38, the consumed energy is the
+   * total energy consumed by all devices in the plattform that receive power from integrated power
+   * delivery mechanism. Included plattform devices are processor cores, SOC, memory, add-on or
+   * peripheral devies that get powered directly from the platform power delivery means.
+   */
+  RAPL_PSYS,
+};
+#define RAPL_NR_DOMAIN 5 /* Number of power domains */
 
-extern uint64_t debug_enabled;
+const char *const RAPL_DOMAIN_STRINGS[RAPL_NR_DOMAIN];
+const char *const RAPL_DOMAIN_FORMATTED_STRINGS[RAPL_NR_DOMAIN];
 
-// Visible for testing
-extern double RAPL_TIME_UNIT;
-extern double RAPL_ENERGY_UNIT;
-extern double RAPL_DRAM_ENERGY_UNIT;
-extern double RAPL_POWER_UNIT;
-
-// Visible for testing
-extern uint32_t processor_signature;
-
-enum RAPL_DOMAIN { PKG, PP0, PP1, DRAM, PSYS };
-
-char *RAPL_DOMAIN_STRINGS[RAPL_NR_DOMAIN];
-char *RAPL_DOMAIN_FORMATTED_STRINGS[RAPL_NR_DOMAIN];
-
-typedef struct APIC_ID_t {
-  uint64_t smt_id;
-  uint64_t core_id;
-  uint64_t pkg_id;
-  uint64_t os_id;
-} APIC_ID_t;
-
-// Visible for testing
-extern APIC_ID_t **pkg_map;
-
-void config_msr_table();
-
+/*!
+ * This function must be called before calling any other function from this module.
+ * Returns 0 on success, 1 on failure.
+ * To free resources, call terminate_rapl() in the end.
+ */
 int init_rapl();
-int terminate_rapl();
+
+/**
+ * Call this function function to cleanup resources.
+ */
+void terminate_rapl();
 
 // Wraparound value for the total energy consumed. It is computed within init_rapl().
 double MAX_ENERGY_STATUS_JOULES; /* default: 65536 */
 
-uint64_t get_num_rapl_nodes();
+int get_num_rapl_nodes();
 
-uint64_t is_supported_msr(uint64_t msr);
-uint64_t is_supported_domain(uint64_t power_domain);
+int is_supported_domain(enum RAPL_DOMAIN power_domain);
 
-int get_total_energy_consumed(uint64_t cpu, uint64_t msr_address,
-                              double *total_energy_consumed_joules);
-int get_pkg_total_energy_consumed(uint64_t node, double *total_energy_consumed);
-int get_pp0_total_energy_consumed(uint64_t node, double *total_energy_consumed);
-int get_pp1_total_energy_consumed(uint64_t node, double *total_energy_consumed);
-int get_dram_total_energy_consumed(uint64_t node, double *total_energy_consumed);
-int get_psys_total_energy_consumed(uint64_t node, double *total_energy_consumed);
+/**
+ * Read the energy consumed in joules for the given power domain of the given node
+ * since the last machine reboot (or energy-register wraparound).
+ *
+ * Returns 0 on success, -1 otherwise
+ */
+int get_total_energy_consumed(
+    int node, enum RAPL_DOMAIN power_domain, double *total_energy_consumed_joules);
 
-/*! \brief RAPL parameters info structure, PKG domain */
-typedef struct pkg_rapl_parameters_t {
-  double thermal_spec_power_watts;
-  double minimum_power_watts;
-  double maximum_power_watts;
-  double maximum_limit_time_window_seconds;
-} pkg_rapl_parameters_t;
-int get_pkg_rapl_parameters(unsigned int node, pkg_rapl_parameters_t *rapl_parameters);
+/**
+ * Read measurements for all nodes and domains and write them to current_measurements.
+ * If cum_energy_J is not NULL, read previous measurements from current_measurements
+ * and accumulate delta in cum_energy_J.
+ */
+int get_total_energy_consumed_for_nodes(
+    int num_node,
+    double current_measurements[num_node][RAPL_NR_DOMAIN],
+    double cum_energy_J[num_node][RAPL_NR_DOMAIN]);
 
-double rapl_dram_energy_units_probe(double rapl_energy_units);
-void calculate_probe_interval_time(struct timespec *signal_timelimit, double thermal_spec_power);
-
-/* Utilities */
-int read_rapl_units();
+/**
+ * Calculate how often the RAPL values need to be read such that overflows can be detected reliably.
+ * The goal is to measure as rarely as possible, but often enough so that no overflow will be
+ * missed out.
+ *
+ * Returns the number of seconds that should be waited between reads at most.
+ */
+long get_maximum_read_interval();
 
 #endif

@@ -23,77 +23,76 @@ IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISI
 THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include "msr.h"
+#include "util.h"
+
+#include <assert.h>
+#include <err.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "msr.h"
+static int *fds;
+static int fds_size = 0;
 
-int *fds;
-size_t fds_size;
-
-/*
- * open_msr_fd
- *
- * Returns 0 on success and MY_ERROR, if at least one msr-file fails to open.
- */
-int open_msr_fd(uint64_t num_nodes) {
-  int err = 0;
-  int fd = 0;
-  char msr_path[32];
+int open_msr_fd(int num_nodes, int (*pkg_map)(int)) {
+  assert(fds_size == 0);
+  assert(fds == NULL);
+  int result = 0;
 
   fds_size = num_nodes;
-  fds = malloc(fds_size * sizeof(int));
+  fds = calloc(fds_size, sizeof(int));
 
-  for (size_t i = 0; i < fds_size; i++) {
-    sprintf(msr_path, "/dev/cpu/%ld/msr", i);
-    fd = open(msr_path, O_RDONLY);
-    fds[i] = fd;
-
+  for (int node = 0; node < fds_size; node++) {
+    char msr_path[32];
+    sprintf(msr_path, "/dev/cpu/%u/msr", pkg_map(node));
+    DEBUG("Using %s for accessing MSR of socket %d.", msr_path, node);
+    int fd = open(msr_path, O_RDONLY);
     if (fd == -1) {
-      err = MY_ERROR;
+      warn("Could not open %s", msr_path);
+      result = -1;
     }
+
+    fds[node] = fd;
   }
 
-  return err;
+  return result;
 }
 
-/*
- * read_msr
- *
- * Will return 0 on success and MY_ERROR on failure.
- */
-int read_msr(int cpu, uint64_t address, uint64_t *value) {
-  int err = 0;
-  FILE *fp;
+int read_msr(int node, off_t address, uint64_t *value) {
+  assert(node < fds_size);
 
-  // dup is used here to clone the fd. This way, we can close the stream afterwards, while we still
-  // retain an open file descriptor.
-  fp = fdopen(dup(fds[cpu]), "r");
-  err = fp == NULL;
-  if (!err) {
-    err = (fseek(fp, address, SEEK_SET) != 0);
+  int fd = fds[node];
+  if (fd == -1) {
+    return -1; // had failed to open
   }
-  if (!err) {
-    err = (fread(value, sizeof(uint64_t), 1, fp) != 1);
+
+  if (lseek(fd, address, SEEK_SET) < 0) {
+    warn("Could not seek to address 0x%lX for reading from MSR for CPU %u", address, node);
+    return -1;
   }
-  if (fp != NULL) {
-    fclose(fp);
+
+  if (read(fd, value, sizeof(uint64_t)) != sizeof(uint64_t)) {
+    // expected if hardware does not support this domain
+    // warn("Could not read from address 0x%lX of MSR for CPU %u", address, node);
+    return -1;
   }
-  return err;
+
+  return 0;
 }
 
-/*
- * close_msr_fd
- *
- * Close each file descriptor and free the allocated memory for the fds-array.
- */
 void close_msr_fd() {
-  for (size_t i = 0; i < fds_size; i++) {
-    if (fds[i] >= 0) {
-      close(fds[i]);
+  if (fds == NULL) {
+    return;
+  }
+
+  for (int node = 0; node < fds_size; node++) {
+    if (fds[node] != -1) {
+      close(fds[node]);
     }
   }
   free(fds);
+  fds = NULL;
+  fds_size = 0;
 }

@@ -27,53 +27,50 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef _h_util
 #define _h_util
 
-#include <sys/capability.h>
+#include <sched.h>
+#include <stdio.h>
+#include <sys/types.h>
+
+#define DEBUG(msg, args...)                                                                        \
+  if (is_debug_enabled()) {                                                                        \
+    fprintf(stderr, "[DEBUG] " msg "\n", args);                                                    \
+  }
+
+void enable_debug();
+int is_debug_enabled();
 
 static const uid_t UID_NOBODY = 65534;
 static const gid_t GID_NOGROUP = 65534;
 
-enum { TEMPORARY = 0, PERMANENT = 1 };
-
-/*
- * The documentation regarding the capabilities was taken from the linux manual pages (i.e.,
- * http://man7.org/linux/man-pages/man3/cap_get_proc.3.html and
- * http://man7.org/linux/man-pages/man3/cap_clear.3.html) [links from Dec. 14, 2017].
- *
- * Note that in order to execute the code on linux, the 'libcap-dev'-package needs to be available
- * on the working machine.
- */
-
 /*
  * Drop all capabilities that the process is currently in possession of.
  *
- * Return 0 on success, or -1 otherwise.
+ * For security, terminates process on failure.
  */
-int drop_capabilities();
-
-/*
- * Documentation and source code for dropping and restoring the root privileges can be found at
- * https://www.safaribooksonline.com/library/view/secure-programming-cookbook/0596003943/ch01s03.html
- * [link from Nov. 28, 2017]
- */
+void drop_capabilities();
 
 /**
- * Drop any extra group or user privileges either permanently or temporarily, depending on the value
- * of the argument. If a nonzero value is passed, privileges will be dropped permanently; otherwise,
- * the privilege drop is temporary. Custom values can be specified for uid and gid to be taken as
- * new id in the process.
+ * Drop any extra group or user privileges.
+ * Custom values can be specified for uid and gid to be taken as new id in the process.
+ *
+ * For security, terminates process on failure.
  */
-void drop_root_privileges_by_id(int permanent, uid_t uid, gid_t gid);
+void drop_root_privileges_by_id(uid_t uid, gid_t gid);
 
 /**
- * Drop any extra group or user privileges either permanently or temporarily, depending on the value
- * of the argument. If a nonzero value is passed, privileges will be dropped permanently; otherwise,
- * the privilege drop is temporary.
+ * Set the CPU affinity of the current thread to the given CPU.
+ * If old_context is not null, store previous CPU affinity in it.
+ *
+ * Returns 0 on success and -1 on failure.
  */
-void drop_root_privileges(int permanent);
+int bind_cpu(int cpu, cpu_set_t *old_context);
 
 /**
- *  Restore privileges to what they were at the last call to spc_drop_privileges().
+ * Set the CPU affinity of the current thread to the given set.
+ * If old_context is not null, store previous CPU affinity in it.
+ *
+ * Returns 0 on success and -1 on failure.
  */
-void restore_root_privileges(void);
+int bind_context(cpu_set_t *new_context, cpu_set_t *old_context);
 
 #endif /* _h_util */

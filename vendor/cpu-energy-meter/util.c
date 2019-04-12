@@ -24,171 +24,124 @@ IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISI
 THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <grp.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/param.h>
-#include <sys/types.h>
-#include <unistd.h>
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 
 #include "util.h"
 
-static int orig_ngroups = -1;
-static gid_t orig_gid = -1;
-static uid_t orig_uid = -1;
-static gid_t orig_groups[NGROUPS_MAX];
+#include <err.h>
+#include <grp.h>
+#include <sys/capability.h>
+#include <unistd.h>
 
-/*
- * Drop all capabilities that the process is currently in possession of.
- *
- * Return 0 on success, or -1 otherwise.
- */
-int drop_capabilities() {
-  int err = 0;
-  cap_t capabilities;
+static int debug_enabled = 0;
 
-  /*
-   * Allocate a capability state in working storage, set the state to that of the calling process,
-   * and return a pointer to the newly created capability state.
-   */
-  capabilities = cap_get_proc();
-
-  if (capabilities == NULL) {
-    err = -1;
-  }
-
-  /*
-   * Clear all capability flags.
-   */
-  if (!err) {
-    err = cap_clear(capabilities);
-  }
-
-  /*
-   * Free the releasable memory, as the capability state in working storage is no longer required.
-   */
-  if (!err) {
-    err = cap_free(capabilities);
-  }
-
-  return err;
+void enable_debug() {
+  debug_enabled = 1;
 }
 
-/**
- * Drop privileges permanently in case a nonzero value is passed; otherwise, the privilege drop is
- * temporary. If either a positive uid or gid is passed as parameter, the value is taken as the new
- * uid or gid, respectively.
- *
- * Warning:
- * If any problems are encountered in attempting to perform the task, abort() is called, terminating
- * the process immediately. If any manipulation of privileges cannot complete successfully, it's
- * safest to assume that the process is in an unknown state, and you should not allow it to
- * continue.
- */
-void drop_root_privileges_by_id(int permanent, uid_t uid, gid_t gid) {
-  gid_t newgid = gid > 0 ? gid : getgid(), oldgid = getegid();
-  uid_t newuid = uid > 0 ? uid : getuid(), olduid = geteuid();
+int is_debug_enabled() {
+  return debug_enabled;
+}
 
-  if (olduid != 0 && oldgid != 0) {
-    return;
+/*
+ * The documentation regarding the capabilities was taken from the linux manual pages (i.e.,
+ * http://man7.org/linux/man-pages/man3/cap_get_proc.3.html and
+ * http://man7.org/linux/man-pages/man3/cap_clear.3.html) [links from Dec. 14, 2017].
+ *
+ * Note that in order to execute the code on linux, the 'libcap-dev'-package needs to be available
+ * on the working machine.
+ */
+
+void drop_capabilities() {
+  // Allocate a capability state in working storage, set the state to that of the calling process,
+  // and return a pointer to the newly created capability state.
+  cap_t capabilities = cap_get_proc();
+  if (capabilities == NULL) {
+    err(1, "Getting capabilities of process failed");
   }
 
-  if (!permanent) {
-    /*
-     * Save information about the privileges that are being dropped so that they can be restored
-     * later.
-     */
-    orig_gid = oldgid;
-    orig_uid = olduid;
-    orig_ngroups = getgroups(NGROUPS_MAX, orig_groups);
+  // Clear all capability flags.
+  if (cap_clear(capabilities)) {
+    err(1, "cap_clear failed");
+  }
+  if (cap_set_proc(capabilities)) {
+    err(1, "Dropping capabilities failed");
+  }
+
+  // Free the releasable memory, as the capability state in working storage is no longer required.
+  if (cap_free(capabilities)) {
+    err(1, "cap_free failed");
+  }
+}
+
+/*
+ * Documentation and source code for dropping and restoring the root privileges can be found at
+ * https://www.safaribooksonline.com/library/view/secure-programming-cookbook/0596003943/ch01s03.html
+ * [link from Nov. 28, 2017]
+ */
+
+void drop_root_privileges_by_id(uid_t uid, gid_t gid) {
+  gid_t newgid = gid > 0 ? gid : getgid();
+  gid_t oldgid = getegid();
+  uid_t newuid = uid > 0 ? uid : getuid();
+  uid_t olduid = geteuid();
+
+  if (olduid != 0 && oldgid != 0) {
+    DEBUG("Not changing UID because not running as root (uid=%d gid=%d).", olduid, oldgid);
+    return; // currently not root, nothing can be done
   }
 
   /*
    * If root privileges are to be dropped, be sure to pare down the ancillary groups for the process
-   * before doing anything else because the setgroups() system call requires root privileges. Drop
-   * ancillary groups regardless of whether privileges are being dropped temporarily or permanently.
+   * before doing anything else because the setgroups() system call requires root privileges.
    */
   if (!olduid) {
     setgroups(1, &newgid);
   }
 
   if (newgid != oldgid) {
-#if !defined(linux)
-    setegid(newgid);
-    if (permanent && setgid(newgid) == -1) {
-      abort();
+    if (setregid(newgid, newgid) == -1) {
+      err(1, "Changing group id of process failed");
     }
-#else
-    if (setregid((permanent ? newgid : (gid_t)-1), newgid) == -1) {
-      abort();
-    }
-#endif
   }
 
   if (newuid != olduid) {
-#if !defined(linux)
-    seteuid(newuid);
-    if (permanent && setuid(newuid) == -1) {
-      abort();
+    if (setreuid(newuid, newuid) == -1) {
+      err(1, "Changing user id of process failed");
     }
-#else
-    if (setreuid((permanent ? newuid : (uid_t)-1), newuid) == -1) {
-      abort();
-    }
-#endif
   }
 
   /* verify that the changes were successful */
-  if (permanent) {
-    if (newgid != oldgid && (setegid(oldgid) != -1 || getegid() != newgid)) {
-      abort();
-    }
-    if (newuid != olduid && (seteuid(olduid) != -1 || geteuid() != newuid)) {
-      abort();
-    }
-  } else {
-    if (newgid != oldgid && getegid() != newgid) {
-      abort();
-    }
-    if (newuid != olduid && geteuid() != newuid) {
-      abort();
-    }
+  if (newgid != oldgid && (setegid(oldgid) != -1 || getegid() != newgid)) {
+    errx(1, "Changing group id of process failed");
+  }
+  if (newuid != olduid && (seteuid(olduid) != -1 || geteuid() != newuid)) {
+    errx(1, "Changing user id of process failed");
   }
 }
 
-/**
- * Drop privileges permanently in case a nonzero value is passed; otherwise, the
- * privilege drop is temporary.
- *
- * See #drop_root_privileges_by_id(int, uid_t, gid_t) for further information.
- */
-void drop_root_privileges(int permanent) {
-  drop_root_privileges_by_id(permanent, -1, -1);
+int bind_cpu(int cpu, cpu_set_t *old_context) {
+  cpu_set_t cpu_context;
+  CPU_ZERO(&cpu_context);
+  CPU_SET(cpu, &cpu_context);
+
+  return bind_context(&cpu_context, old_context);
 }
 
-/**
- * Restore privileges to what they were at the last call to drop_root_privileges(TEMPORARY).
- *
- * Warning:
- * If any problems are encountered in attempting to perform the task, abort() is called, terminating
- * the process immediately. If any manipulation of privileges cannot complete successfully, it's
- * safest to assume that the process is in an unknown state, and you should not allow it to
- * continue.
- */
-void restore_root_privileges(void) {
-  if (geteuid() != orig_uid) {
-    if (seteuid(orig_uid) == -1 || geteuid() != orig_uid) {
-      abort();
+int bind_context(cpu_set_t *new_context, cpu_set_t *old_context) {
+  if (old_context != NULL) {
+    if (sched_getaffinity(0, sizeof(cpu_set_t), old_context) == -1) {
+      warn("Could not retrieve CPU affinity of process");
+      return -1;
     }
   }
 
-  if (getegid() != orig_gid) {
-    if (setegid(orig_gid) == -1 || getegid() != orig_gid) {
-      abort();
-    }
+  if (sched_setaffinity(0, sizeof(cpu_set_t), new_context) == -1) {
+    warn("Could not set CPU affinity of process");
+    return -1;
   }
 
-  if (!orig_uid) {
-    setgroups(orig_ngroups, orig_groups);
-  }
+  return 0;
 }

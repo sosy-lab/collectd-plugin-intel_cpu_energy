@@ -56,30 +56,7 @@ double **prev_sample = NULL;
 double **cum_energy_J = NULL;
 
 int get_rapl_energy_info(uint64_t power_domain, uint64_t node, double *total_energy_consumed) {
-  int err;
-
-  switch (power_domain) {
-  case PKG:
-    err = get_pkg_total_energy_consumed(node, total_energy_consumed);
-    break;
-  case PP0:
-    err = get_pp0_total_energy_consumed(node, total_energy_consumed);
-    break;
-  case PP1:
-    err = get_pp1_total_energy_consumed(node, total_energy_consumed);
-    break;
-  case DRAM:
-    err = get_dram_total_energy_consumed(node, total_energy_consumed);
-    break;
-  case PSYS:
-    err = get_psys_total_energy_consumed(node, total_energy_consumed);
-    break;
-  default:
-    err = MY_ERROR;
-    break;
-  }
-
-  return err;
+  return get_total_energy_consumed(node, power_domain, total_energy_consumed);
 }
 
 static int energy_submit(unsigned int cpu_id, unsigned int domain, double measurement) {
@@ -156,7 +133,7 @@ static int energy_init(void) {
         "value %d",
         err);
     terminate_rapl();
-    return MY_ERROR;
+    return -1;
   }
   rapl_node_count = get_num_rapl_nodes();
   INFO("intel_cpu_energy plugin: found %lu nodes (physical CPUs)", rapl_node_count);
