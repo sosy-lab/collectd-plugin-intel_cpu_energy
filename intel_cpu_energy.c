@@ -55,6 +55,9 @@ static int rapl_node_count = 0;
 static double (*prev_sample)[][RAPL_NR_DOMAIN] = NULL;
 static double (*cum_energy_J)[][RAPL_NR_DOMAIN] = NULL;
 
+static int energy_init(void);
+static int energy_shutdown(void);
+
 static int energy_submit(int cpu_id, int domain, double measurement) {
   /*
    * an id is of the form host/plugin-instance/type-instance with
@@ -80,7 +83,13 @@ static int energy_submit(int cpu_id, int domain, double measurement) {
 
 static int energy_read(void) {
   if (get_total_energy_consumed_for_nodes(rapl_node_count, *prev_sample, *cum_energy_J) != 0) {
-    ERROR("intel_cpu_energy plugin: Failed to read energy information");
+    ERROR("intel_cpu_energy plugin: Failed to read energy information, reinitializing...");
+
+    // reinitialize plugin
+    energy_shutdown();
+    energy_init();
+
+    // return error such that collectd applies backoff
     return -1;
   }
 
